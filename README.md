@@ -1,5 +1,5 @@
 # StandardLibrary
- 一些个人写码时常用的模块
+ 一些个人写码时常用的模块(Python)
 
 
 ## 通用结构
