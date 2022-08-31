@@ -43,7 +43,7 @@
 ```python
 config: Config = read_config(raw_path="myConfig")
 ```
-值得一提的是，config.py 支持自动识别配置类型，如 .yaml/.json，所以不加后缀的后缀名是可行的
+值得一提的是，config.py 支持自动识别配置类型，如 .yaml/.json，所以不加后缀的路径是可行的
 
 ## 读取其他配置文件
 
