@@ -1,13 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-StandardLibrary v1.0
+StandardLibrary v1.1
 配置读取，并转化为对象
+TODO support network file？
+TODO 读取类提示，默认值
 """
 
 __all__ = ["config"]
 
 import os
-import yaml
+import json
+
+try:
+    import yaml
+except ImportError as yaml_import_error:
+    yaml = None
 
 
 class _Dict(dict):
@@ -39,12 +46,29 @@ class Config:
     pass
 
 
-def read_config(path="config.yaml", raw_path=None):
+def read_config(path: str = "config", raw_path: str = None):
     """
     读取配置文件，默认在config文件夹下寻找，可用raw_path通过绝对路径读取
+    可省略后缀名，会尝试自动读取，目前支持 .yaml/.json
     """
-    with open(raw_path or os.path.join("config", path), mode="rt", encoding="utf-8") as f:
-        return dict2obj(yaml.safe_load(f))
+    path = raw_path or os.path.join("config", path)
+    if not os.path.exists(path):
+        for i in [".yaml", ".json"]:
+            if os.path.exists(path + i):
+                path = path + i
+                break
+        else:
+            raise FileNotFoundError(path)
+
+    with open(path, mode="rt", encoding="utf-8") as f:
+        if path.endswith(".yaml"):
+            if not yaml:
+                raise yaml_import_error
+            return dict2obj(yaml.safe_load(f))
+        elif path.endswith(".json"):
+            return dict2obj(json.load(f))
+        else:
+            raise TypeError(f"not support config file type {path}")
 
 
-config: Config = read_config(raw_path="config.yaml")
+config: Config = read_config(raw_path="config")
