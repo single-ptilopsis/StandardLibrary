@@ -9,10 +9,11 @@
 └── module          # 模块名
     ├── README.md       # 模块介绍
     ├── module.py       # 模块代码
-    ├── example.py      # 示例
-    └── other files
+    └── example         # 示例
+        ├── module.py       # 示例代码
+        └── other files     # 相关文件
 ```
 
 ## 模块们
 
- - `config` 读取配置文件，并转化为对象
+ - [`config`](./config) 读取配置文件，并转化为对象
