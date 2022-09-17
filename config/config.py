@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-StandardLibrary v1.2
+StandardLibrary v1.3
 配置读取，并转化为对象
 TODO support network file？
-TODO support Unino Option
 """
 
 __all__ = ['config', 'sync']
@@ -12,7 +11,7 @@ import os
 import re
 import json
 # 从typing导入类提示的基类，以判断类提示
-from typing import _GenericAlias, Optional, Any
+from typing import _GenericAlias, Union, Optional, Any
 
 try:
     import yaml
@@ -211,15 +210,27 @@ def buildin2expect(value, _type, father=None):
 
 
 def typing2expect(value, _type: _GenericAlias, father=None):
-    if not isinstance(value, _type.__origin__):
-        # 当类型与标注类不同时报错
-        raise TypeError(f'need {_type.__origin__} but {type(value)} is given')
     if _type.__origin__ == list:
         return _List((config2expect(i, _type.__args__[0], father=father) for i in value), father=father)
     elif _type.__origin__ == dict:
         return _Dict(
             ((buildin2expect(k, _type.__args__[0]), config2expect(v, _type.__args__[1], father=father)) for k, v in
              value.items()), father=father)
+    elif _type.__origin__ == Union:
+        default = None
+        for t in _type.__args__:
+            if istyping(t):
+                if isinstance(value, t.__origin__):
+                    return config2expect(value, t, father=father)
+            elif not isbuildin(t):
+                default = t
+            elif isinstance(value, t):
+                return config2expect(value, t, father=father)
+        else:
+            if default:
+                return config2expect(value, default, father=father)
+            else:
+                raise TypeError
     else:
         # TODO else type ?
         return config2obj(value)
@@ -261,10 +272,9 @@ def dict2obj(obj: dict, expect: type, father=None):
         # 无标注默认值
         if k not in d:
             d[k] = get_value(v, father=d)
-
     for k, v in obj.items():
         if k not in d:
-            d = config2obj(v, father=d)
+            d[k] = config2obj(v, father=d)
 
     return d
 
@@ -345,6 +355,9 @@ def read_config(path: str = 'config', raw_path: str = None, expect: type = None,
             config = json.load(f)
         else:
             raise TypeError(f'not support config file type {path}')
+
+    if config is None:
+        config = {}
 
     if expect:
         try:
