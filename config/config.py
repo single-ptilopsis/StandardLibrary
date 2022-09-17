@@ -164,7 +164,7 @@ def isbuildin(_type) -> bool:
     :param _type: 类 str/int ...
     :return bool
     """
-    return _type in [str, int, list, dict]
+    return _type in [str, int, list, dict, bool]
 
 
 def istyping(_type) -> bool:
@@ -203,6 +203,8 @@ def buildin2expect(value, _type, father=None):
             return eval(value)
         else:
             int(value)
+    elif _type == bool:
+        return bool(value)
     elif _type == list or _type == dict:
         return config2obj(value, father=father)
     else:
