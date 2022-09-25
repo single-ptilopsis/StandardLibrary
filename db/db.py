@@ -2,6 +2,7 @@
 """
 StandardLibrary v1.0
 异步mysql数据库
+需配合config.py一起使用
 """
 
 import asyncio
