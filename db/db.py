@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-StandardLibrary
+StandardLibrary v1.0
 异步mysql数据库
 """
 
