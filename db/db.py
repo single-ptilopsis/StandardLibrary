@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-StandardLibrary v1.0
+StandardLibrary v1.2
 异步mysql数据库
-需配合config.py一起使用
 """
 
 import asyncio
@@ -12,78 +11,93 @@ from .config import config
 
 
 class DBConfig:
-    def __init__(self, host, db, user, password, port=3306):
-        """
-        :param host:数据库ip地址
-        :param port:数据库端口
-        :param db:库名
-        :param user:用户名
-        :param password:密码
-        """
-        self.host = host
-        self.port = port
-        self.db = db
-        self.user = user
-        self.password = password
+    host: str = '127.0.0.1'
+    port: int = 3306
+    user: str = 'root'
+    password: str
+    db: str
 
-        self.minsize = 1
-        self.maxsize = 10
+    minsize: int = 1
+    maxsize: int = 10
+    charset: str = 'utf8'
 
-        self.charset = "utf8mb4"
+    default: bool = False
+    mark: str = ''
 
+    def __init__(self, **kwargs):
+        self.host = kwargs.get('host', '127.0.0.1')
+        self.port = kwargs.get('port', 3306)
+        self.user = kwargs.get('user', 'root')
+        self.password = kwargs['password']
+        self.db = kwargs['db']
 
-class DBPoolConn:
-    def __init__(self, config: DBConfig):
-        self.config = config
-        self.__pool: aiomysql.Pool = None
+        self.minsize = kwargs.get('minsize', 1)
+        self.maxsize = kwargs.get('maxsize', 10)
+        self.charset = kwargs.get('charset', 'utf8')
 
-    async def init_pool(self):
-        self.__pool: aiomysql = await aiomysql.create_pool(
-            minsize=self.config.minsize,
-            maxsize=self.config.maxsize,
-            charset=self.config.charset,
-            host=self.config.host,
-            port=self.config.port,
-            db=self.config.db,
-            user=self.config.user,
-            password=self.config.password,
-        )
+        self.default = kwargs.get('default', False)
+        self.mark = kwargs.get('mark') or self.db
 
-    async def get_conn(self) -> aiomysql.Connection:
-        return await self.__pool.acquire()
+    @property
+    def params(self):
+        return {
+            'host': self.host,
+            'port': self.port,
+            'user': self.user,
+            'password': self.password,
+            'db': self.db,
 
-    async def release(self, conn):
-        return await self.__pool.release(conn)
-
-    def __await__(self):
-        return self.init_pool().__await__()
+            'minsize': self.minsize,
+            'maxsize': self.maxsize,
+            'charset': self.charset
+        }
 
 
-# 初始化DB配置和链接池
-db_config = DBConfig(
-    config.database.host,
-    config.database.db,
-    config.database.user,
-    config.database.password,
-    config.database.port,
-)
+default = ''
+g_conn_pool = {}
 
-g_conn_pool = DBPoolConn(db_config)
-asyncio.get_event_loop().run_until_complete(g_conn_pool)
+
+async def init_pool(config: DBConfig):
+    pool = await aiomysql.create_pool(**config.params)
+    g_conn_pool[config.mark] = pool
+
+
+if isinstance(config.database, dict):
+    config = DBConfig(**config.database)
+    default = config.mark
+    g_conn_pool[config.mark] = init_pool(config)
+
+else:
+    if len(config.database) == 1:
+        default = DBConfig(**config.database[0]).mark
+
+    for conf in config.database:
+        conf = DBConfig(**conf)
+        if conf.mark in g_conn_pool:
+            raise ValueError(f'exist database {conf.mark}')
+        g_conn_pool[conf.mark] = init_pool(conf)
+
+        if conf.default:
+            if default != '':
+                raise ValueError('default database already exists')
+            default = conf.mark
+
+asyncio.get_event_loop().run_until_complete(asyncio.gather(*[pool for pool in g_conn_pool.values()]))
 
 
 # ---- 使用 async with 的方式来优化代码, 利用 __aenter__ 和 __aexit__ 控制async with的进入和退出处理
 class DBConn(object):
-    def __init__(self, commit=True):
+    def __init__(self, db: str = default, commit=True):
         """
         :param commit: 是否在最后提交事务(设置为False的时候方便单元测试)
         """
+        self.db = db
         self._commit = commit
 
     async def __aenter__(self):
 
         # 从连接池获取数据库连接
-        conn = await g_conn_pool.get_conn()
+        conn = await g_conn_pool[self.db].acquire()
         await conn.ping(reconnect=True)
         cursor: aiomysql.Cursor = await conn.cursor(aiomysql.cursors.DictCursor)
         conn.autocommit = False
@@ -98,20 +112,12 @@ class DBConn(object):
             await self._conn.commit()
         # 在退出的时候自动关闭连接和cursor
         await self._cursor.close()
-        await g_conn_pool.release(self._conn)
+        await g_conn_pool[self.db].release(self._conn)
 
     # ========= 一系列封装的方法
     async def insert(self, sql, params=None):
         await self.cursor.execute(sql, params)
         return self.cursor.lastrowid
-
-    # 返回 count
-    async def get_count(self, sql, params=None, count_key="count(id)"):
-        await self.cursor.execute(sql, params)
-        data = await self.cursor.fetchone()
-        if not data:
-            return 0
-        return data[count_key]
 
     async def fetch_one(self, sql, params=None):
         await self.cursor.execute(sql, params)
