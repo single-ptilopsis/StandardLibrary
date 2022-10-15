@@ -22,11 +22,11 @@
  - 填写配置文件 (config.yaml)
    ```yaml
    database:
-   host: '127.0.0.1'
-   port: 3306
-   user: 'root'
-   password: 'password'
-   db: 'dbname'
+       host: '127.0.0.1'
+       port: 3306
+       user: 'root'
+       password: 'password'
+       db: 'dbname'
    ```
  - 从 config.py 中导入 `config` (默认读取工作目录下 config.yaml)
    ```python
