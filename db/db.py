@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-StandardLibrary v1.2
+StandardLibrary v1.1
 异步mysql数据库
 """
 
@@ -23,6 +23,7 @@ class DBConfig:
 
     default: bool = False
     mark: str = ''
+    disable: bool = False
 
     def __init__(self, **kwargs):
         self.host = kwargs.get('host', '127.0.0.1')
@@ -63,24 +64,23 @@ async def init_pool(config: DBConfig):
 
 
 if isinstance(config.database, dict):
-    config = DBConfig(**config.database)
-    default = config.mark
-    g_conn_pool[config.mark] = init_pool(config)
-
+    database_config = [] if config.database.disable else [config.database]
 else:
-    if len(config.database) == 1:
-        default = DBConfig(**config.database[0]).mark
+    database_config = [c for c in config.database if not c.disable]
 
-    for conf in config.database:
-        conf = DBConfig(**conf)
-        if conf.mark in g_conn_pool:
-            raise ValueError(f'exist database {conf.mark}')
-        g_conn_pool[conf.mark] = init_pool(conf)
+if database_config == 1:
+    default = DBConfig(**database_config[0]).mark
 
-        if conf.default:
-            if default != '':
-                raise ValueError('default database already exists')
-            default = conf.mark
+for conf in database_config:
+    conf = DBConfig(**conf)
+    if conf.mark in g_conn_pool:
+        raise ValueError(f'exist database {conf.mark}')
+    g_conn_pool[conf.mark] = init_pool(conf)
+
+    if conf.default:
+        if default != '':
+            raise ValueError('default database already exists')
+        default = conf.mark
 
 asyncio.get_event_loop().run_until_complete(asyncio.gather(*[pool for pool in g_conn_pool.values()]))
 
