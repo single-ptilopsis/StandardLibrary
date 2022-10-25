@@ -95,7 +95,6 @@ class DBConn(object):
         self._commit = commit
 
     async def __aenter__(self):
-
         # 从连接池获取数据库连接
         conn = await g_conn_pool[self.db].acquire()
         await conn.ping(reconnect=True)
