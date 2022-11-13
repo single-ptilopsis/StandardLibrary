@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-StandardLibrary v1.4
+StandardLibrary v1.5
 配置读取，并转化为对象
 TODO support network file？
 """
 
-__all__ = ['config', 'sync']
+__all__ = ['config', 'read_config', 'sync', 'Cmd']
 
 import os
 import re
@@ -412,31 +412,38 @@ def config2expect(config: Any, expect: type, father=None):
         return dict2obj(config, expect, father=father)
 
 
-def read_config(path: str = 'config', raw_path: str = None, expect: type = None, sync: bool = False):
+def read_config(path: Union[str, bool] = 'config', raw_path: str = None, expect: type = None, sync: bool = False):
     """
     读取配置文件，默认在config文件夹下寻找，可用raw_path通过绝对路径读取
     可省略后缀名，会尝试自动读取，目前支持 .yaml/.json
+    :param path: 相对路径 为False表示不读取文件
+    :param raw_path: 绝对路径 存在时path无效
+    :param expect: 期望类
+    :param sync: 是否同步到文件
     """
-    path = raw_path or os.path.join('config', path)
-    if not os.path.exists(path):
-        for i in ['.yaml', '.json']:
-            if os.path.exists(path + i):
-                path = path + i
-                break
-        else:
-            raise FileNotFoundError(path)
+    if path:
+        path = raw_path or os.path.join('config', path)
+        if not os.path.exists(path):
+            for i in ['.yaml', '.json']:
+                if os.path.exists(path + i):
+                    path = path + i
+                    break
+            else:
+                raise FileNotFoundError(path)
 
-    with open(path, mode='rt', encoding='utf-8') as f:
-        if path.endswith('.yaml'):
-            if not yaml:
-                raise yaml_import_error
-            config = yaml.safe_load(f)
-        elif path.endswith('.json'):
-            config = json.load(f)
-        else:
-            raise TypeError(f'not support config file type {path}')
+        with open(path, mode='rt', encoding='utf-8') as f:
+            if path.endswith('.yaml'):
+                if not yaml:
+                    raise yaml_import_error
+                config = yaml.safe_load(f)
+            elif path.endswith('.json'):
+                config = json.load(f)
+            else:
+                raise TypeError(f'not support config file type {path}')
 
-    if config is None:
+        if config is None:
+            config = {}
+    else:
         config = {}
 
     if expect:
