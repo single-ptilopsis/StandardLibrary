@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-StandardLibrary v1.3
+StandardLibrary v1.4
 配置读取，并转化为对象
 TODO support network file？
-TODO support cmd config
 """
 
 __all__ = ['config', 'sync']
