@@ -3,12 +3,14 @@
 StandardLibrary v1.3
 配置读取，并转化为对象
 TODO support network file？
+TODO support cmd config
 """
 
 __all__ = ['config', 'sync']
 
 import os
 import re
+import sys
 import json
 # 从typing导入类提示的基类，以判断类提示
 from typing import _GenericAlias, Union, Optional, Any
@@ -158,13 +160,71 @@ class _Dict(Propagate, dict):
         return {k: (v.dump() if isinstance(v, _List) or isinstance(v, _Dict) else v) for k, v in self.copy().items()}
 
 
+class Cmd:
+    _dict = {
+        'str': str,
+        'int': int,
+        'float': float
+    }
+
+    def __init__(self, key: str, prefix: str = '-', short: str = True, expect: Union[type, str] = str):
+        """
+        Cmd类配置 e.g. host
+        :param key: 配置键
+        :param short: 缩写，True为key首字母, False取消缩写
+        :param prefix: 前缀 e.g. - / --
+        :param expect: 期望类 str/int/bool 如为bool键存在即为true
+                        特殊的，可以使用str类型的"str"/"int" 表示接受无参
+        """
+        self.key = prefix + key
+        self.short = short and prefix + (key[0] if short is True else short)
+        self.expect = expect
+
+    def get_value(self):
+        """
+        从命令行获取值
+        :return: value/False
+        """
+        index = self.key in sys.argv and sys.argv.index(self.key) \
+                or self.short and self.short in sys.argv and sys.argv.index(self.short)
+        if index:
+            index += 1
+            if self.expect == bool:
+                return True
+            elif self.expect in self._dict:
+                if index < len(sys.argv):
+                    return self._dict[self.expect](sys.argv[index])
+                else:
+                    return True
+            elif index < len(sys.argv):
+                return sys.argv[index]
+            else:
+                raise ValueError('%s must have param (type %s)' % (self.key, self.expect))
+        else:
+            return False
+
+    def format(self, value):
+        """
+        格式化值
+        :param value: 值（配置文件中）
+        :return: value （格式化后）
+        """
+        if self.expect in self._dict:
+            if isinstance(value, bool):
+                return value
+            else:
+                return self._dict[self.expect](value)
+        else:
+            return self.expect(value)
+
+
 def isbuildin(_type) -> bool:
     """
     判断一个类型是否是内置类
     :param _type: 类 str/int ...
     :return bool
     """
-    return _type in [str, int, list, dict, bool]
+    return _type in [str, int, float, list, dict, bool]
 
 
 def istyping(_type) -> bool:
@@ -198,7 +258,7 @@ def buildin2expect(value, _type, father=None):
     elif _type == int:
         if isinstance(value, int):
             return value
-        elif isinstance(value, str) and re.search('^[0-9 *]+$', value):
+        elif isinstance(value, str) or isinstance(value, float) and re.search('^[0-9 *]+$', value):
             # e.g. 3600 * 8
             return eval(value)
         else:
@@ -212,6 +272,13 @@ def buildin2expect(value, _type, father=None):
 
 
 def typing2expect(value, _type: _GenericAlias, father=None):
+    """
+    将配置转为预期typing
+    :param value: 配置
+    :param _type: 预期typing
+    :param father: 福配置，用于同步文件
+    :return: 配置对象
+    """
     if _type.__origin__ == list:
         return _List((config2expect(i, _type.__args__[0], father=father) for i in value), father=father)
     elif _type.__origin__ == dict:
@@ -224,6 +291,10 @@ def typing2expect(value, _type: _GenericAlias, father=None):
             if istyping(t):
                 if isinstance(value, t.__origin__):
                     return config2expect(value, t, father=father)
+            elif isinstance(t, Cmd):
+                if t.get_value():
+                    return t.get_value()
+                default = t
             elif not isbuildin(t):
                 default = t
             elif isinstance(value, t):
@@ -238,11 +309,11 @@ def typing2expect(value, _type: _GenericAlias, father=None):
         return config2obj(value)
 
 
-def dict2obj(obj: dict, expect: type, father=None):
+def dict2obj(value: dict, expect: type, father=None):
     """
     将字典配置转为预期对象
     使用此方法转换的对象不能使用hasattr
-    :param obj: 配置
+    :param value: 配置
     :param expect: 预期类
     :param father: 福配置，用于同步文件
     :return: 配置对象
@@ -254,8 +325,16 @@ def dict2obj(obj: dict, expect: type, father=None):
         if '__annotations__' in expect.__dict__:
             # 类标注处理
             for k, _type in expect.__annotations__.items():
-                if k in obj:
-                    d[k] = config2expect(obj[k], _type)
+                if isinstance(_type, Cmd):
+                    v = _type.get_value() \
+                        or k in value and _type.format(value[k]) \
+                        or k in default and _type.format(default[k])
+                    if v:
+                        d[k] = v
+                    else:
+                        raise ConfigError(expect, k, 'missing config')
+                elif k in value:
+                    d[k] = config2expect(value[k], _type)
                 elif k in default:
                     d[k] = get_value(default[k], father=father)
                 elif not isbuildin(_type) and not istyping(_type):
@@ -274,7 +353,7 @@ def dict2obj(obj: dict, expect: type, father=None):
         # 无标注默认值
         if k not in d:
             d[k] = get_value(v, father=d)
-    for k, v in obj.items():
+    for k, v in value.items():
         if k not in d:
             d[k] = config2obj(v, father=d)
 
