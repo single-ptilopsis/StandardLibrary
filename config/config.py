@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-StandardLibrary v1.5
+StandardLibrary v1.6
 配置读取，并转化为对象
 TODO support network file？
 """
@@ -159,7 +159,21 @@ class _Dict(Propagate, dict):
         return {k: (v.dump() if isinstance(v, _List) or isinstance(v, _Dict) else v) for k, v in self.copy().items()}
 
 
-class Cmd:
+class CustomType:
+    """
+    自定义类提示，会做特殊处理
+    parse处理函数是必须的，接收配置
+    need_data: parse函数中data是否是必须的
+    null: 获取不到配置配置有误时"应该"返回的值，不应在正常配置结果中出现
+    """
+    need_data: bool = True
+    null: Any = None
+
+    def parse(self, data: Any = None, father: Propagate = None) -> Any: ...  # 解析配置并返回格式化后字典
+
+
+class Cmd(CustomType):
+    need_data = False
     _dict = {
         'str': str,
         'int': int,
@@ -178,6 +192,12 @@ class Cmd:
         self.key = prefix + key
         self.short = short and prefix + (key[0] if short is True else short)
         self.expect = expect
+
+    def parse(self, data: Any = None, father: Propagate = None) -> Any:
+        if data:
+            return self.format(data)
+        else:
+            return self.get_value()
 
     def get_value(self):
         """
@@ -200,7 +220,7 @@ class Cmd:
             else:
                 raise ValueError('%s must have param (type %s)' % (self.key, self.expect))
         else:
-            return False
+            return self.null
 
     def format(self, value):
         """
@@ -255,9 +275,9 @@ def buildin2expect(value, _type, father=None):
     if _type == str:
         return str(value)
     elif _type == int:
-        if isinstance(value, int):
+        if isinstance(value, int) or isinstance(value, float):
             return value
-        elif isinstance(value, str) or isinstance(value, float) and re.search('^[0-9 *]+$', value):
+        elif isinstance(value, str) and re.search('^[0-9 *]+$', value):
             # e.g. 3600 * 8
             return eval(value)
         else:
@@ -285,16 +305,18 @@ def typing2expect(value, _type: _GenericAlias, father=None):
             ((buildin2expect(k, _type.__args__[0]), config2expect(v, _type.__args__[1], father=father)) for k, v in
              value.items()), father=father)
     elif _type.__origin__ == Union:
+        # 针对Union类的处理
         default = None
         for t in _type.__args__:
             if istyping(t):
                 if isinstance(value, t.__origin__):
                     return config2expect(value, t, father=father)
-            elif isinstance(t, Cmd):
-                if t.get_value():
-                    return t.get_value()
-                default = t
+            elif isinstance(t, CustomType):
+                r = t.parse(value, father=father)
+                if r != t.null:
+                    return r
             elif not isbuildin(t):
+                # 类预期时，由于无法检测，因此覆盖默认类
                 default = t
             elif isinstance(value, t):
                 return config2expect(value, t, father=father)
@@ -308,7 +330,7 @@ def typing2expect(value, _type: _GenericAlias, father=None):
         return config2obj(value)
 
 
-def dict2obj(value: dict, expect: type, father=None):
+def dict2expect(value: dict, expect: type, father=None):
     """
     将字典配置转为预期对象
     使用此方法转换的对象不能使用hasattr
@@ -324,14 +346,14 @@ def dict2obj(value: dict, expect: type, father=None):
         if '__annotations__' in expect.__dict__:
             # 类标注处理
             for k, _type in expect.__annotations__.items():
-                if isinstance(_type, Cmd):
-                    v = _type.get_value() \
-                        or k in value and _type.format(value[k]) \
-                        or k in default and _type.format(default[k])
-                    if v:
-                        d[k] = v
-                    else:
+                if isinstance(_type, CustomType):
+                    v = not _type.need_data and _type.parse(father=father) \
+                        or k in value and _type.parse(value[k], father=father) \
+                        or k in default and _type.parse(default[k], father=father)
+                    if v == _type.null:
                         raise ConfigError(expect, k, 'missing config')
+                    else:
+                        d[k] = v
                 elif k in value:
                     d[k] = config2expect(value[k], _type)
                 elif k in default:
@@ -395,7 +417,7 @@ def config2obj(config, father=None):
         return config
 
 
-def config2expect(config: Any, expect: type, father=None):
+def config2expect(config: Any, expect: Any, father=None):
     """
     将配置转为预期类，并根据期望对象提供默认值/类型检查
     使用此方法转换的对象不能使用hasattr
@@ -404,12 +426,19 @@ def config2expect(config: Any, expect: type, father=None):
     :param father: 父配置，用于同步文件
     :return: 配置对象
     """
+    if isinstance(expect, CustomType):
+        v = not expect.need_data and expect.parse(father=father) \
+            or expect.parse(config, father=father)
+        if v == expect.null:
+            raise ConfigError(expect, '', 'missing config')
+        else:
+            return v
     if isbuildin(expect):
         return buildin2expect(config, expect, father=father)
     if istyping(expect):
         return typing2expect(config, expect, father=father)
     else:
-        return dict2obj(config, expect, father=father)
+        return dict2expect(config, expect, father=father)
 
 
 def read_config(path: Union[str, bool] = 'config', raw_path: str = None, expect: type = None, sync: bool = False):
