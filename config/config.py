@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-StandardLibrary v1.6
+StandardLibrary v1.7
 配置读取，并转化为对象
 TODO support network file？
 """
@@ -12,7 +12,7 @@ import re
 import sys
 import json
 # 从typing导入类提示的基类，以判断类提示
-from typing import _GenericAlias, Union, Optional, Any
+from typing import _GenericAlias, Union, Optional, List, Any
 
 try:
     import yaml
@@ -163,7 +163,7 @@ class CustomType:
     """
     自定义类提示，会做特殊处理
     parse处理函数是必须的，接收配置
-    need_data: parse函数中data是否是必须的
+    need_data: parse函数中data是必须的
     null: 获取不到配置配置有误时"应该"返回的值，不应在正常配置结果中出现
     """
     need_data: bool = True
@@ -228,13 +228,19 @@ class Cmd(CustomType):
         :param value: 值（配置文件中）
         :return: value （格式化后）
         """
-        if self.expect in self._dict:
-            if isinstance(value, bool):
-                return value
+        try:
+            if self.expect in self._dict:
+                if isinstance(value, bool):
+                    return value
+                else:
+                    return self._dict[self.expect](value)
             else:
-                return self._dict[self.expect](value)
-        else:
-            return self.expect(value)
+                return self.expect(value)
+        except (ValueError, TypeError):
+            return self.null
+
+
+noneType = type(None)
 
 
 def isbuildin(_type) -> bool:
@@ -243,7 +249,7 @@ def isbuildin(_type) -> bool:
     :param _type: 类 str/int ...
     :return bool
     """
-    return _type in [str, int, float, list, dict, bool]
+    return _type in [str, int, float, list, dict, bool, noneType]
 
 
 def istyping(_type) -> bool:
@@ -293,6 +299,7 @@ def buildin2expect(value, _type, father=None):
 def typing2expect(value, _type: _GenericAlias, father=None):
     """
     将配置转为预期typing
+    目前处理 List/Dict/Union
     :param value: 配置
     :param _type: 预期typing
     :param father: 福配置，用于同步文件
@@ -319,6 +326,7 @@ def typing2expect(value, _type: _GenericAlias, father=None):
                 # 类预期时，由于无法检测，因此覆盖默认类
                 default = t
             elif isinstance(value, t):
+                # 内置类转换
                 return config2expect(value, t, father=father)
         else:
             if default:
@@ -328,6 +336,25 @@ def typing2expect(value, _type: _GenericAlias, father=None):
     else:
         # TODO else type ?
         return config2obj(value)
+
+
+def union2expect(args: List[type], father=None, k: str = ''):
+    """
+    处理无配置是union类的值 e.g. Optional[str]
+    :param args: Union.__args__，预期的类型
+    :param father: 福配置，用于同步文件
+    :param k: 键，用于报错
+    :return: 配置对象
+    """
+    for arg in args:
+        if isinstance(arg, CustomType) and not arg.need_data:
+            r = arg.parse(father=father)
+            if r != arg.null:
+                return r
+        elif isinstance(None, arg):
+            return None
+    else:
+        raise ConfigError('Union[%s]' % ','.join(str(arg) for arg in args), k, 'missing config')
 
 
 def dict2expect(value: dict, expect: type, father=None):
@@ -358,6 +385,8 @@ def dict2expect(value: dict, expect: type, father=None):
                     d[k] = config2expect(value[k], _type)
                 elif k in default:
                     d[k] = get_value(default[k], father=father)
+                elif istyping(_type) and _type.__origin__ == Union:
+                    d[k] = union2expect(_type.__args__, father=father, k=k)
                 elif not isbuildin(_type) and not istyping(_type):
                     d[k] = config2expect({}, _type)
                 else:
@@ -441,16 +470,20 @@ def config2expect(config: Any, expect: Any, father=None):
         return dict2expect(config, expect, father=father)
 
 
-def read_config(path: Union[str, bool] = 'config', raw_path: str = None, expect: type = None, sync: bool = False):
+def read_config(path: Union[str, bool] = 'config', raw_path: str = None, data: Any = None, expect: type = None,
+                sync: bool = False):
     """
     读取配置文件，默认在config文件夹下寻找，可用raw_path通过绝对路径读取
     可省略后缀名，会尝试自动读取，目前支持 .yaml/.json
     :param path: 相对路径 为False表示不读取文件
-    :param raw_path: 绝对路径 存在时path无效
+    :param raw_path: 绝对路径 存在时path无效:
+    :param data: 配置数据，存在时path/raw_path无效
     :param expect: 期望类
     :param sync: 是否同步到文件
     """
-    if path:
+    if not data is None:
+        config = data
+    elif path:
         path = raw_path or os.path.join('config', path)
         if not os.path.exists(path):
             for i in ['.yaml', '.json']:
