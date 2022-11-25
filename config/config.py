@@ -186,8 +186,8 @@ class Cmd(CustomType):
         :param key: 配置键
         :param short: 缩写，True为key首字母, False取消缩写
         :param prefix: 前缀 e.g. - / --
-        :param expect: 期望类 str/int/bool 如为bool键存在即为true
-                        特殊的，可以使用str类型的"str"/"int" 表示接受无参
+        :param expect: 期望类 str/int/float/bool 如为bool键存在即为true
+                        特殊的，可以使用str类型的"str"/"int"/"float" 表示接受无参
         """
         self.key = prefix + key
         self.short = short and prefix + (key[0] if short is True else short)
@@ -220,7 +220,10 @@ class Cmd(CustomType):
             else:
                 raise ValueError('%s must have param (type %s)' % (self.key, self.expect))
         else:
-            return self.null
+            if isinstance(self.expect, str) or self.expect == bool:
+                return False
+            else:
+                return self.null
 
     def format(self, value):
         """
