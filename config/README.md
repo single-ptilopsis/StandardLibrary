@@ -69,7 +69,7 @@ config = read_config("myConfig")
 
 ## 临时配置
 
-当一些配置并不需要储存到文件（如cmd参数，详见...），可使用 path=False 来表明此配置是临时的
+当一些配置并不需要储存到文件（如cmd参数，[详见](./cmd)），可使用 path=False 来表明此配置是临时的
 
 ```python
 from config import read_config, Cmd
@@ -83,8 +83,8 @@ config = read_config(path=False, expect=MyConfig)
 
 ## Typing
 
-目前支持 List, Dict, Union, Optional  
-类型提示为Union时会按照最匹配选择格式化策略
+目前支持 `List`, `Dict`, `Union`, `Optional`  
+类型提示为`Union`时会按照最匹配选择格式化策略
 
 详见 [typing](./typing)
 
