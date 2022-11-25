@@ -1,0 +1,4 @@
+database:
+  host: '114.5.1.4'
+  password: example
+  db: example
